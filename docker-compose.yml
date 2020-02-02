@@ -1,38 +1,36 @@
 version: '3'
 
 services:
+
   db:
-    image: mariadb
-    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    image: postgres
     restart: always
     volumes:
-      - db:/var/lib/mysql
+      - db:/var/lib/postgresql/data
     environment:
-      - MYSQL_ROOT_PASSWORD=
-    env_file:
-      - db.env
+      - POSTGRES_DB=/run/secrets/nextcloud_postgres_database
+      - POSTGRES_USER=/run/secrets/nextcloud_postgres_user
+      - POSTGRES_PASSWORD=/run/secrets/nextcloud_postgres_password
+    # secrets:
+    #   # - nextcloud_postgres_root_password # hmmmm...necessary?
+    #   - nextcloud_postgres_database
+    #   - nextcloud_postgres_password
+    #   - nextcloud_postgres_user 
 
   app:
-    image: nextcloud:fpm-alpine
+    image: nextcloud:apache
     restart: always
     volumes:
       - nextcloud:/var/www/html
     environment:
-      - MYSQL_HOST=
-    env_file:
-      - db.env
+      - VIRTUAL_HOST=/run/secrets/nextcloud_letsencrypt_virtualhost
+      - LETSENCRYPT_HOST=/run/secrets/nextcloud_letsencrypt_host
+      - LETSENCRYPT_EMAIL=/run/secrets/nextcloud_letsencrypt_email
+      - POSTGRES_HOST=db
+    # env_file:
+    #   - db.env
     depends_on:
       - db
-
-  web:
-    build: ./web
-    restart: always
-    volumes:
-      - nextcloud:/var/www/html:ro
-    environment:
-      - VIRTUAL_HOST=
-    depends_on:
-      - app
     networks:
       - proxy-tier
       - default
@@ -43,6 +41,8 @@ services:
     ports:
       - 80:80
       - 443:443
+    labels:
+      com.github.jrcs.letsencrypt_nginx_proxy_companion.nginx_proxy: "true"
     volumes:
       - certs:/etc/nginx/certs:ro
       - vhost.d:/etc/nginx/vhost.d
@@ -50,22 +50,35 @@ services:
       - /var/run/docker.sock:/tmp/docker.sock:ro
     networks:
       - proxy-tier
-    depends_on:
-      - omgwtfssl
 
-  omgwtfssl:
-    image: paulczar/omgwtfssl
-    restart: "no"
+  letsencrypt-companion:
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    restart: always
     volumes:
-      - certs:/certs
-    environment:
-      - SSL_SUBJECT=servhostname.local
-      - CA_SUBJECT=my@example.com
-      - SSL_KEY=/certs/servhostname.local.key
-      - SSL_CSR=/certs/servhostname.local.csr
-      - SSL_CERT=/certs/servhostname.local.crt
+      - certs:/etc/nginx/certs
+      - vhost.d:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - proxy-tier
+    depends_on:
+      - proxy
+
+  # secrets:
+  #   nextcloud_postgres_root_password:
+  #     external: true
+  #   nextcloud_postgres_database:
+  #     external: true
+  #   nextcloud_postgres_password:
+  #     external: true
+  #   nextcloud_postgres_user:
+  #     external: true
+  #   nextcloud_letsencrypt_virtualhost:
+  #     external: true
+  #   nextcloud_letsencrypt_host:
+  #     external: true
+  #   nextcloud_letsencrypt_email:
+  #     external: true
 
 volumes:
   db:
